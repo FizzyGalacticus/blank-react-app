@@ -80,7 +80,11 @@ gulp.task('bump-patch', () => {
 });
 
 gulp.task('compile-scripts', () => {
-	return browserify('www/js/app.js')
+	return browserify('www/js/app.js', {
+		paths: [
+			'./node_modules', './www/js'
+		],
+	})
 	.transform('babelify', {
 		presets: ['react', 'env'],
 	})

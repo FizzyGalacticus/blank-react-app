@@ -17865,7 +17865,7 @@ var _reactDom = require('react-dom');
 
 var _reactDom2 = _interopRequireDefault(_reactDom);
 
-var _MenuBar = require('./components/MenuBar');
+var _MenuBar = require('components/MenuBar');
 
 var _MenuBar2 = _interopRequireDefault(_MenuBar);
 
@@ -17909,7 +17909,7 @@ var app = document.getElementById('app');
 
 _reactDom2.default.render(_react2.default.createElement(Layout, { message: 'Hello world from ReactJS!' }), app);
 
-},{"./components/MenuBar":27,"react":25,"react-dom":22}],27:[function(require,module,exports){
+},{"components/MenuBar":27,"react":25,"react-dom":22}],27:[function(require,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {

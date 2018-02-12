@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
-import MenuBar from './components/MenuBar';
+import MenuBar from 'components/MenuBar';
 
 class Layout extends React.Component {
 	render() {
