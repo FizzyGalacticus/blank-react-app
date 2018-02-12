@@ -13,6 +13,15 @@ let cssmin = require('gulp-cssmin');
 let sequence = require('gulp-sequence');
 let fs = require('fs');
 
+let express = require('express');
+let app = express();
+let http = require('http');
+let open = require('open');
+
+let livereload = require('gulp-livereload');
+
+app.use(express.static(`${__dirname}/dist`));
+
 let getSymverFromPackage = () => {
 	let pkg = require('./package.json');
 
@@ -76,17 +85,22 @@ gulp.task('compile-scripts', () => {
 		presets: ['react', 'env'],
 	})
 	.bundle()
+	.on('error', function(err) {
+		console.error(err);
+		this.emit('end');
+	})
 	.pipe(source('app.js'))
 	.pipe(plumber())
     .pipe(gulp.dest('dist/js'));
 });
 
-gulp.task('min-scripts', () => {
+gulp.task('min-scripts', ['compile-scripts'], () => {
 	return gulp.src(['dist/js/app.js'])
 	.pipe(plumber())
 	.pipe(uglify())
 	.pipe(rename({suffix:'.min'}))
-    .pipe(gulp.dest('dist/js'));
+    .pipe(gulp.dest('dist/js'))
+    .pipe(livereload());
 });
 
 gulp.task('min-html', () => {
@@ -103,7 +117,8 @@ gulp.task('min-html', () => {
 		removeOptionalTags: true,
 		removeRedundantAttributes: true
 	}))
-	.pipe(gulp.dest('dist'));
+	.pipe(gulp.dest('dist'))
+	.pipe(livereload());
 });
 
 gulp.task('sass', () => {
@@ -116,7 +131,8 @@ gulp.task('sass', () => {
 	.pipe(concat('app.css'))
 	.pipe(cssmin())
 	.pipe(rename({suffix: '.min'}))
-	.pipe(gulp.dest('dist/css'));
+	.pipe(gulp.dest('dist/css'))
+	.pipe(livereload());
 });
 
 gulp.task('fonts', () => {
@@ -128,26 +144,67 @@ gulp.task('fonts', () => {
 			  fontDir + '*.svg', 
 			  fontDir + '*.eot'])
 	.pipe(plumber())
-	.pipe(gulp.dest('dist/fonts'));
+	.pipe(gulp.dest('dist/fonts'))
+	.pipe(livereload());
 });
 
 gulp.task('min-image', () => {
 	return gulp.src('www/img/**/*')
 	.pipe(plumber())
 	.pipe(imagemin())
-	.pipe(gulp.dest('dist/img'));
+	.pipe(gulp.dest('dist/img'))
+	.pipe(livereload());
+});
+
+gulp.task('serve', () => {
+	let server = http.createServer(app);
+	let serverPort = 3000;
+
+	server.listen(serverPort, () => {
+		let url = `http://localhost:${serverPort}`;
+		console.log(`Now serving the page at ${url}`);
+		open(url);
+	});
+
+	process.on('SIGINT', function() {
+		server.close();
+		process.exit();
+	});
 });
 
 gulp.task('prod', () => {
 	process.env.NODE_ENV = 'production';
 });
 
-gulp.task('all', (callback) => {
-	sequence('prod', 'compile-scripts', 'min-scripts', ['min-html', 'sass', 'fonts'])(callback);
+gulp.task('build-all', (callback) => {
+	sequence('prod', ['min-scripts', 'min-html', 'sass', 'fonts'])(callback);
 });
 
-gulp.task('watch', () => {
-	gulp.watch('www/**', ['all']);
+gulp.task('watch-scripts', () => {
+	gulp.watch('www/js/**/*.js', ['min-scripts']);
 });
 
-gulp.task('default', sequence('all', 'watch'));
+gulp.task('watch-html', () => {
+	gulp.watch('www/**/*.html', ['min-html']);
+});
+
+gulp.task('watch-sass', () => {
+	gulp.watch(['www/scss/**/*.scss', 'www/scss/**/*.css', 'www/css/**/*.css'], ['sass']);
+});
+
+gulp.task('watch-fonts', () => {
+	gulp.watch(['www/fonts/**'], ['fonts']);
+});
+
+gulp.task('watch-img', () => {
+	gulp.watch(['www/img/**'], ['min-image']);
+});
+
+gulp.task('livereload', () => {
+	livereload.listen({
+		start: true,
+		reloadPage: 'dist/index.html',
+	});
+});
+
+gulp.task('default', sequence('build-all', ['watch-scripts', 'watch-html', 'watch-sass', 'watch-fonts', 'watch-img', 'serve', 'livereload']));

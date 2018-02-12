@@ -1,11 +1,8 @@
-import React from 'react';
-import AppBar from 'react-toolbox/lib/app_bar/AppBar';
-import Navigation from 'react-toolbox/lib/navigation/Navigation';
-import Link from 'react-toolbox/lib/link/Link';
+import {Component} from 'react';
 
-class MenuBar extends React.Component {
+class MenuBar extends Component {
 	render() {
-		return <AppBar title={this.props.title} />;
+		return <h1>{this.props.title}</h1>;
 	}
 }
 
