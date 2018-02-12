@@ -1,8 +1,8 @@
-import React from 'react';
+import {Component} from 'react';
 import ReactDOM from 'react-dom';
 import MenuBar from 'components/MenuBar';
 
-class Layout extends React.Component {
+class Layout extends Component {
 	render() {
 		return (
 			<div>

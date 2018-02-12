@@ -17859,8 +17859,6 @@ var _createClass = function () { function defineProperties(target, props) { for 
 
 var _react = require('react');
 
-var _react2 = _interopRequireDefault(_react);
-
 var _reactDom = require('react-dom');
 
 var _reactDom2 = _interopRequireDefault(_reactDom);
@@ -17877,8 +17875,8 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
-var Layout = function (_React$Component) {
-	_inherits(Layout, _React$Component);
+var Layout = function (_Component) {
+	_inherits(Layout, _Component);
 
 	function Layout() {
 		_classCallCheck(this, Layout);
@@ -17889,11 +17887,11 @@ var Layout = function (_React$Component) {
 	_createClass(Layout, [{
 		key: 'render',
 		value: function render() {
-			return _react2.default.createElement(
+			return React.createElement(
 				'div',
 				null,
-				_react2.default.createElement(_MenuBar2.default, { title: 'Blank React App' }),
-				_react2.default.createElement(
+				React.createElement(_MenuBar2.default, { title: 'Blank React App' }),
+				React.createElement(
 					'div',
 					null,
 					this.props.message
@@ -17903,11 +17901,11 @@ var Layout = function (_React$Component) {
 	}]);
 
 	return Layout;
-}(_react2.default.Component);
+}(_react.Component);
 
 var app = document.getElementById('app');
 
-_reactDom2.default.render(_react2.default.createElement(Layout, { message: 'Hello world from ReactJS!' }), app);
+_reactDom2.default.render(React.createElement(Layout, { message: 'Hello world from ReactJS!' }), app);
 
 },{"components/MenuBar":27,"react":25,"react-dom":22}],27:[function(require,module,exports){
 'use strict';

@@ -126,7 +126,7 @@ gulp.task('min-html', () => {
 });
 
 gulp.task('sass', () => {
-	return gulp.src(['www/scss/**/*.scss', 'www/scss/**/*.css', 'www/css/**/*.css'])
+	return gulp.src(['www/scss/**/*.scss', 'www/scss/**/*.css', 'www/css/**/*.css', 'www/js/**/*.scss', 'www/js/**/*.css'])
 	.pipe(plumber())
 	.pipe(sass.sync())
 	.pipe(autoprefixer({
@@ -193,7 +193,7 @@ gulp.task('watch-html', () => {
 });
 
 gulp.task('watch-sass', () => {
-	gulp.watch(['www/scss/**/*.scss', 'www/scss/**/*.css', 'www/css/**/*.css'], ['sass']);
+	gulp.watch(['www/scss/**/*.scss', 'www/scss/**/*.css', 'www/css/**/*.css', 'www/js/**/*.scss', 'www/js/**/*.css'], ['sass']);
 });
 
 gulp.task('watch-fonts', () => {
