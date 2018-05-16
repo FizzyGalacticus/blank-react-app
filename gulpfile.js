@@ -1,110 +1,370 @@
-let gulp = require('gulp');
-let plumber = require('gulp-plumber');
-let browserify = require('browserify');
-let sass = require('gulp-sass');
-let autoprefixer = require('gulp-autoprefixer');
-let source = require('vinyl-source-stream');
-let concat = require('gulp-concat');
-let uglify = require('gulp-uglify');
-let rename = require('gulp-rename');
-let htmlmin = require('gulp-htmlmin');
-let imagemin = require('gulp-imagemin');
-let cssmin = require('gulp-cssmin');
-let sequence = require('gulp-sequence');
-let fs = require('fs');
+const gulp = require('gulp');
+const log = require('fancy-log');
+const plumber = require('gulp-plumber');
+const eslint = require('gulp-eslint');
+const browserify = require('browserify');
+const watchify = require('watchify');
+const livereactload = require('livereactload');
+const sass = require('gulp-sass');
+const autoprefixer = require('gulp-autoprefixer');
+const source = require('vinyl-source-stream');
+const buffer = require('vinyl-buffer');
+const concat = require('gulp-concat');
+const uglify = require('gulp-uglify');
+const rename = require('gulp-rename');
+const htmlmin = require('gulp-htmlmin');
+const imagemin = require('gulp-imagemin');
+const cssmin = require('gulp-cssmin');
+const sequence = require('gulp-sequence');
+const fs = require('fs');
+const {exec} = require('child_process');
 
-let express = require('express');
-let app = express();
-let http = require('http');
-let open = require('open');
+const express = require('express');
+const app = express();
+const http = require('http');
+const open = require('open');
+const clear = require('clear');
+const package = require('./package.json');
 
-let livereload = require('gulp-livereload');
+const livereload = require('gulp-livereload');
 
 app.use(express.static(`${__dirname}/dist`));
 
-let getSymverFromPackage = () => {
-	let pkg = require('./package.json');
+const prodFileReplacements = [
+	{
+		path: 'www/index.html',
+		replace: 'react.development.js',
+		with: 'react.production.min.js',
+	},
+];
 
-	return pkg.version;
+/**
+ * Reads a file as UTF-8 and returns a Promise
+ * which resolves to the string contents.
+ * @param {string} path - The path of the
+ * file to read.
+ * @return {Promise}
+ */
+const readFile = (path) => {
+	return new Promise((resolve, reject) => {
+		fs.readFile(path, 'utf-8', (err, data) => {
+			if(err)
+				reject(err);
+			else
+				resolve(data);
+		});
+	});
 };
 
-let writeSymverToPackage = (symverStr) => {
-	let pkg = require('./package.json');
-	pkg.version = symverStr;
-
-	fs.writeFileSync('./package.json', JSON.stringify(pkg, 0, 4));
+/**
+ * Writes a file with the given data.
+ * @param {string} path - The path of the
+ * file to write.
+ * @param {any} data - The data to write
+ * to the file.
+ * @return {Promise} Resolves on successful
+ * write.
+ */
+const writeFile = (path, data) => {
+	return new Promise((resolve, reject) => {
+		fs.writeFile(path, data, (err) => {
+			if(err)
+				reject(err);
+			else
+				resolve();
+		});
+	});
 };
 
-let createGitTag = (symver) => {
-	exec(`git commit -am "Updated version to ${symver}"`, {cwd: __dirname}, (err, stdout, stderr) => {
-		if(err)
-			throw new Error(err);
-		else {
-			exec(`git tag v${symver}`, {cwd: __dirname}, (err, stdout, stderr) => {
-				if(err)
-					throw new Error(err);
-			});
+const builder = browserify('www/js/app.js', {
+	paths: [
+		'./node_modules', './www/js',
+	],
+	cache: {},
+	packageCache: {},
+	plugin: (process.env.NODE_ENV != 'production') ? [[watchify, {
+		ignoreWatch: ['**/node_modules/**'],
+	}], livereactload] : undefined,
+}).transform('babelify', {
+	presets: ['react', 'env'],
+	env: {
+		development: {
+			plugins: [
+				'transform-object-rest-spread',
+				'transform-decorators-legacy',
+				'transform-runtime',
+				['react-transform', {
+					transforms: [{
+						transform: 'livereactload/babel-transform',
+						imports: ['react'],
+					}],
+				}],
+			],
+		},
+		production: {
+			plugins: [
+				'transform-object-rest-spread',
+				'transform-decorators-legacy',
+				'transform-runtime',
+			],
+		},
+	},
+});
+
+/**
+ * Runs given files through eslint.
+ * @param {Array} files - The files to
+ * process with eslint.
+ * @return {stream} The lint stream.
+ */
+const lintScripts = (files = ['www/js/**/*.js']) => {
+	return gulp.src(files)
+		.pipe(eslint('.eslintrc'))
+		.pipe(eslint.format());
+};
+
+/**
+ * Uses the 'builder' browserify object
+ * to compile JS source.
+ * @return {stream} The build stream.
+ */
+const buildJS = () => {
+	return builder
+		.bundle()
+		.on('error', async function(err) {
+			log.error(err);
+
+			try {
+				const errFilePath = `${__dirname}/build.err`;
+
+				await writeFile(errFilePath, err);
+			}
+			catch(err) {
+				log.error(`Couln't write error to file: ${err}`);
+			}
+
+			/* eslint-disable-next-line */
+			this.emit('end');
+		})
+		.pipe(source('app.js'))
+		.pipe(buffer())
+		.pipe(plumber())
+		.pipe(gulp.dest('dist/js'));
+};
+
+builder.on('update', (ids) => {
+	clear();
+	lintScripts(ids);
+
+	const buildStart = Date.now();
+
+	ids.forEach((path) => {
+		log(`Rebuilding ${path} ...`);
+	});
+
+	buildJS().on('end', () => {
+		log(`... build complete: ${Date.now() - buildStart} ms`);
+	});
+});
+
+/**
+ * Replaces all instances of a string with
+ * another in a given file.
+ * @param {string} path - The path of the
+ * file you wish to work on.
+ * @param {string} original - The original
+ * string text you wish to replace.
+ * @param {string} newContent - The new
+ * content you wish to replace the old
+ * stuff with.
+ * @return {Promise} Resolves upon success.
+ */
+const replaceInFile = (path, original, newContent) => {
+	return new Promise(async (resolve, reject) => {
+		try {
+			const originalContents = await readFile(path);
+			let fileContents = originalContents;
+
+			if(original instanceof Array) {
+				original.forEach((orig, index) => {
+					const regex = new RegExp(orig, 'g');
+
+					fileContents = fileContents.replace(regex, newContent[index]);
+				});
+			}
+			else {
+				const regex = new RegExp(original, 'g');
+
+				fileContents = fileContents.replace(regex, newContent);
+			}
+
+			if(originalContents != fileContents) {
+				try {
+					await writeFile(path, fileContents);
+					resolve();
+				}
+				catch(err) {
+					reject(err);
+				}
+			}
+			else
+				resolve();
+		}
+		catch(err) {
+			reject(err);
 		}
 	});
 };
 
-let bumpVersion = (index) => {
-	let originalSymver = getSymverFromPackage();
-	let versions = originalSymver.split('.');
+/**
+ * Writes the given parameter to the package.json
+ * as the new version string.
+ * @param  {string} symverStr
+ * @return {Promise}
+ */
+const writeSymverToPackage = (symverStr) => {
+	log(`Writing new vesion to package.json: ${symverStr}`);
+	return new Promise((resolve, reject) => {
+		const pkg = {...package};
+		pkg.version = symverStr;
 
-	versions[index]++;
-
-	versions.forEach((version, i) => {
-		if(i > index)
-			versions[i] = 0;
+		fs.writeFile('./package.json', JSON.stringify(pkg, 0, '\t'), (err) => {
+			if(err)
+				reject(err);
+			else
+				resolve();
+		});
 	});
-
-	let newSymver = `${versions[0]}.${versions[1]}.${versions[2]}`;
-	writeSymverToPackage(newSymver);
-	
-	setTimeout(() => {
-		createGitTag(newSymver);
-	}, 7000);
 };
 
+/**
+ * Commits all files and creates a git tag
+ * for the current branch for the given
+ * symver string.
+ * @param  {string} symver
+ * @return {Promise}
+ */
+const createGitTag = (symver) => {
+	log(`Creating new git tag: v${symver}`);
+	return new Promise((resolve, reject) => {
+		exec(`git commit -am "Updated version to ${symver}"`, {cwd: __dirname}, (err, stdout, stderr) => {
+			if(err)
+				reject(err);
+			else {
+				exec(`git tag v${symver}`, {cwd: __dirname}, (err, stdout, stderr) => {
+					if(err)
+						reject(err);
+					else {
+						package.version = symver;
+						resolve();
+					}
+				});
+			}
+		});
+	});
+};
+
+/**
+ * Bumps the current version of rundown based on the input:
+ * <br />
+ * 0 - Bumps the major version, resets minor and patch to 0.
+ * <br />
+ * 1 - Bumps the minor version, resets patch to 0.
+ * <br />
+ * 2 - Bumps the patch version.
+ * @param  {number} index
+ * @return {Promise}
+ */
+const bumpVersion = (index) => {
+	log('Bumping package version...');
+	return new Promise(async (resolve, reject) => {
+		const originalSymver = `${package.version}`;
+		const versions = originalSymver.split('.');
+
+		versions[index]++;
+
+		versions.forEach((version, i) => {
+			if(i > index)
+				versions[i] = 0;
+		});
+
+		const newSymver = `${versions[0]}.${versions[1]}.${versions[2]}`;
+
+		try {
+			await writeSymverToPackage(newSymver);
+
+			try {
+				await createGitTag(newSymver);
+				resolve();
+			}
+			catch(err) {
+				reject(err);
+			}
+		}
+		catch(err) {
+			reject(err);
+		}
+	});
+};
+
+gulp.task('clear', () => {
+	return new Promise((resolve, reject) => {
+		clear();
+		resolve();
+	});
+});
+
 gulp.task('bump-major', () => {
-	bumpVersion(0);
+	return bumpVersion(0);
 });
 
 gulp.task('bump-minor', () => {
-	bumpVersion(1);
+	return bumpVersion(1);
 });
 
 gulp.task('bump-patch', () => {
-	bumpVersion(2);
+	return bumpVersion(2);
 });
 
-gulp.task('compile-scripts', () => {
-	return browserify('www/js/app.js', {
-		paths: [
-			'./node_modules', './www/js'
-		],
-	})
-	.transform('babelify', {
-		presets: ['react', 'env'],
-	})
-	.bundle()
-	.on('error', function(err) {
-		console.error(err);
-		this.emit('end');
-	})
-	.pipe(source('app.js'))
-	.pipe(plumber())
-    .pipe(gulp.dest('dist/js'));
+gulp.task('lint-scripts', () => {
+	return lintScripts();
+});
+
+gulp.task('prod-env', () => {
+	return new Promise(async (resolve, reject) => {
+		const promises = [];
+
+		if(process.env.NODE_ENV == 'production') {
+			prodFileReplacements.forEach((replacement) => {
+				promises.push(replaceInFile(replacement.path, replacement.replace, replacement.with));
+			});
+		}
+		else {
+			prodFileReplacements.forEach((replacement) => {
+				promises.push(replaceInFile(replacement.path, replacement.with, replacement.replace));
+			});
+		}
+
+		try {
+			await Promise.all(promises);
+			resolve();
+		}
+		catch(err) {
+			reject(err);
+		}
+	});
+});
+
+gulp.task('compile-scripts', ['lint-scripts', 'prod-env'], () => {
+	return buildJS();
 });
 
 gulp.task('min-scripts', ['compile-scripts'], () => {
 	return gulp.src(['dist/js/app.js'])
-	.pipe(plumber())
-	.pipe(uglify())
-	.pipe(rename({suffix:'.min'}))
-    .pipe(gulp.dest('dist/js'))
-    .pipe(livereload());
+		.pipe(plumber())
+		.pipe(uglify())
+		.pipe(gulp.dest('dist/js'))
+		.pipe(livereload());
 });
 
 gulp.task('min-html', () => {
@@ -142,10 +402,10 @@ gulp.task('sass', () => {
 gulp.task('fonts', () => {
 	var fontDir = 'www/fonts/';
 	return gulp.src([fontDir + '*.ttf',
-			  fontDir + '*.oft', 
-			  fontDir + '*.woff', 
-			  fontDir + '*.woff2', 
-			  fontDir + '*.svg', 
+			  fontDir + '*.oft',
+			  fontDir + '*.woff',
+			  fontDir + '*.woff2',
+			  fontDir + '*.svg',
 			  fontDir + '*.eot'])
 	.pipe(plumber())
 	.pipe(gulp.dest('dist/fonts'))
@@ -166,7 +426,7 @@ gulp.task('serve', () => {
 
 	server.listen(serverPort, () => {
 		let url = `http://localhost:${serverPort}`;
-		console.log(`Now serving the page at ${url}`);
+		log(`Now serving the page at ${url}`);
 		open(url);
 	});
 
@@ -176,16 +436,12 @@ gulp.task('serve', () => {
 	});
 });
 
-gulp.task('prod', () => {
-	process.env.NODE_ENV = 'production';
+gulp.task('all-prod', (callback) => {
+	sequence(['min-scripts', 'min-html', 'sass', 'fonts', 'min-image'])(callback);
 });
 
-gulp.task('build-all', (callback) => {
-	sequence('prod', ['min-scripts', 'min-html', 'sass', 'fonts'])(callback);
-});
-
-gulp.task('watch-scripts', () => {
-	gulp.watch('www/js/**/*.js', ['min-scripts']);
+gulp.task('all', (callback) => {
+	sequence(['compile-scripts', 'min-html', 'sass', 'fonts', 'min-image'])(callback);
 });
 
 gulp.task('watch-html', () => {
@@ -211,4 +467,11 @@ gulp.task('livereload', () => {
 	});
 });
 
-gulp.task('default', sequence('build-all', ['watch-scripts', 'watch-html', 'watch-sass', 'watch-fonts', 'watch-img', 'serve', 'livereload']));
+gulp.task('default', sequence('all', [
+	'watch-html',
+	'watch-sass',
+	'watch-fonts',
+	'watch-img',
+	'serve',
+	'livereload',
+]));
