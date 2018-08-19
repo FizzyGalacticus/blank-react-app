@@ -1,0 +1,26 @@
+{
+	"presets": ["react", "env"],
+	"env": {
+		"development": {
+			"plugins": [
+				"transform-object-rest-spread",
+				"transform-decorators-legacy",
+				"transform-runtime",
+				[
+					"react-transform",
+					{
+						"transforms": [
+							{
+								"transform": "livereactload/babel-transform",
+								"imports": ["react"]
+							}
+						]
+					}
+				]
+			]
+		},
+		"production": {
+			"plugins": ["transform-object-rest-spread", "transform-decorators-legacy", "transform-runtime"]
+		}
+	}
+}

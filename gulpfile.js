@@ -1,3 +1,5 @@
+/** @module gulpfile */
+
 const gulp = require('gulp');
 const log = require('fancy-log');
 const plumber = require('gulp-plumber');
@@ -24,11 +26,14 @@ const app = express();
 const http = require('http');
 const open = require('open');
 const clear = require('clear');
-const package = require('./package.json');
+const packageFile = require('./package.json');
 
 const livereload = require('gulp-livereload');
 
 app.use(express.static(`${__dirname}/dist`));
+
+let builder;
+let singleRun = true;
 
 const prodFileReplacements = [
 	{
@@ -76,41 +81,6 @@ const writeFile = (path, data) => {
 	});
 };
 
-const builder = browserify('www/js/app.js', {
-	paths: [
-		'./node_modules', './www/js',
-	],
-	cache: {},
-	packageCache: {},
-	plugin: (process.env.NODE_ENV != 'production') ? [[watchify, {
-		ignoreWatch: ['**/node_modules/**'],
-	}], livereactload] : undefined,
-}).transform('babelify', {
-	presets: ['react', 'env'],
-	env: {
-		development: {
-			plugins: [
-				'transform-object-rest-spread',
-				'transform-decorators-legacy',
-				'transform-runtime',
-				['react-transform', {
-					transforms: [{
-						transform: 'livereactload/babel-transform',
-						imports: ['react'],
-					}],
-				}],
-			],
-		},
-		production: {
-			plugins: [
-				'transform-object-rest-spread',
-				'transform-decorators-legacy',
-				'transform-runtime',
-			],
-		},
-	},
-});
-
 /**
  * Runs given files through eslint.
  * @param {Array} files - The files to
@@ -119,8 +89,8 @@ const builder = browserify('www/js/app.js', {
  */
 const lintScripts = (files = ['www/js/**/*.js']) => {
 	return gulp.src(files)
-		.pipe(eslint('.eslintrc'))
-		.pipe(eslint.format());
+	.pipe(eslint('.eslintrc'))
+	.pipe(eslint.format());
 };
 
 /**
@@ -134,38 +104,14 @@ const buildJS = () => {
 		.on('error', async function(err) {
 			log.error(err);
 
-			try {
-				const errFilePath = `${__dirname}/build.err`;
-
-				await writeFile(errFilePath, err);
-			}
-			catch(err) {
-				log.error(`Couln't write error to file: ${err}`);
-			}
-
 			/* eslint-disable-next-line */
 			this.emit('end');
 		})
-		.pipe(source('app.js'))
-		.pipe(buffer())
-		.pipe(plumber())
-		.pipe(gulp.dest('dist/js'));
+	.pipe(source('app.js'))
+	.pipe(buffer())
+	.pipe(plumber())
+	.pipe(gulp.dest('dist/js'));
 };
-
-builder.on('update', (ids) => {
-	clear();
-	lintScripts(ids);
-
-	const buildStart = Date.now();
-
-	ids.forEach((path) => {
-		log(`Rebuilding ${path} ...`);
-	});
-
-	buildJS().on('end', () => {
-		log(`... build complete: ${Date.now() - buildStart} ms`);
-	});
-});
 
 /**
  * Replaces all instances of a string with
@@ -225,7 +171,7 @@ const replaceInFile = (path, original, newContent) => {
 const writeSymverToPackage = (symverStr) => {
 	log(`Writing new vesion to package.json: ${symverStr}`);
 	return new Promise((resolve, reject) => {
-		const pkg = {...package};
+		const pkg = {...packageFile};
 		pkg.version = symverStr;
 
 		fs.writeFile('./package.json', JSON.stringify(pkg, 0, '\t'), (err) => {
@@ -255,7 +201,7 @@ const createGitTag = (symver) => {
 					if(err)
 						reject(err);
 					else {
-						package.version = symver;
+						packageFile.version = symver;
 						resolve();
 					}
 				});
@@ -278,7 +224,7 @@ const createGitTag = (symver) => {
 const bumpVersion = (index) => {
 	log('Bumping package version...');
 	return new Promise(async (resolve, reject) => {
-		const originalSymver = `${package.version}`;
+		const originalSymver = `${packageFile.version}`;
 		const versions = originalSymver.split('.');
 
 		versions[index]++;
@@ -306,6 +252,43 @@ const bumpVersion = (index) => {
 		}
 	});
 };
+
+gulp.task('init-builder', () => {
+	if(builder === undefined) {
+		builder = browserify('www/js/app.js', {
+			paths: ['./node_modules', './www/js'],
+			cache: {},
+			packageCache: {},
+			plugin:
+				(process.env.NODE_ENV != 'production' && !singleRun) ?
+					[
+						[
+							watchify,
+							{
+								ignoreWatch: ['**/node_modules/**'],
+							},
+						],
+						livereactload,
+					]
+					: undefined,
+		}).transform('babelify');
+
+		builder.on('update', (ids) => {
+			clear();
+			lintScripts(ids);
+
+			const buildStart = Date.now();
+
+			ids.forEach((path) => {
+				log(`Rebuilding ${path} ...`);
+			});
+
+			buildJS().on('end', () => {
+				log(`... build complete: ${Date.now() - buildStart} ms`);
+			});
+		});
+	}
+});
 
 gulp.task('clear', () => {
 	return new Promise((resolve, reject) => {
@@ -355,43 +338,53 @@ gulp.task('prod-env', () => {
 	});
 });
 
-gulp.task('compile-scripts', ['lint-scripts', 'prod-env'], () => {
+gulp.task('compile-scripts', ['init-builder', 'lint-scripts', 'prod-env'], () => {
 	return buildJS();
 });
 
 gulp.task('min-scripts', ['compile-scripts'], () => {
 	return gulp.src(['dist/js/app.js'])
-		.pipe(plumber())
-		.pipe(uglify())
-		.pipe(gulp.dest('dist/js'))
-		.pipe(livereload());
+	.pipe(plumber())
+	.pipe(uglify())
+	.pipe(gulp.dest('dist/js'))
+	.pipe(livereload());
 });
 
-gulp.task('min-html', () => {
+gulp.task('min-html', ['prod-env'], () => {
 	return gulp.src('www/**/*.html')
 	.pipe(plumber())
-	.pipe(htmlmin({
-		collapseWhitespace: true,
-		minifyURLs: true,
-		minifyCSS: true,
-		minifyJS: true,
-		removeAttributeQuotes: true,
-		removeComments: true,
-		removeEmptyAttributes: true,
-		removeOptionalTags: true,
-		removeRedundantAttributes: true
-	}))
+	.pipe(
+		htmlmin({
+			collapseWhitespace: true,
+			minifyURLs: true,
+			minifyCSS: true,
+			minifyJS: true,
+			removeAttributeQuotes: true,
+			removeComments: true,
+			removeEmptyAttributes: true,
+			removeOptionalTags: true,
+			removeRedundantAttributes: true,
+		})
+	)
 	.pipe(gulp.dest('dist'))
 	.pipe(livereload());
 });
 
 gulp.task('sass', () => {
-	return gulp.src(['www/scss/**/*.scss', 'www/scss/**/*.css', 'www/css/**/*.css', 'www/js/**/*.scss', 'www/js/**/*.css'])
+	return gulp.src([
+		'www/scss/**/*.scss',
+		'www/scss/**/*.css',
+		'www/css/**/*.css',
+		'www/js/**/*.scss',
+		'www/js/**/*.css',
+	])
 	.pipe(plumber())
-	.pipe(sass.sync())
-	.pipe(autoprefixer({
-		browsers: ['last 3 versions'],
-	}))
+	.pipe(sass.sync({includePaths: ['www/scss']}))
+	.pipe(
+		autoprefixer({
+			browsers: ['last 3 versions'],
+		})
+	)
 	.pipe(concat('app.css'))
 	.pipe(cssmin())
 	.pipe(rename({suffix: '.min'}))
@@ -400,32 +393,39 @@ gulp.task('sass', () => {
 });
 
 gulp.task('fonts', () => {
-	var fontDir = 'www/fonts/';
-	return gulp.src([fontDir + '*.ttf',
-			  fontDir + '*.oft',
-			  fontDir + '*.woff',
-			  fontDir + '*.woff2',
-			  fontDir + '*.svg',
-			  fontDir + '*.eot'])
+	const fontDir = 'www/fonts/';
+	return gulp.src([
+		fontDir + '*.ttf',
+		fontDir + '*.oft',
+		fontDir + '*.woff',
+		fontDir + '*.woff2',
+		fontDir + '*.svg',
+		fontDir + '*.eot',
+	])
 	.pipe(plumber())
 	.pipe(gulp.dest('dist/fonts'))
 	.pipe(livereload());
 });
 
-gulp.task('min-image', () => {
-	return gulp.src('www/img/**/*')
+const minImage = (src = 'www/img/**/*') => {
+	return gulp.src(src)
 	.pipe(plumber())
 	.pipe(imagemin())
 	.pipe(gulp.dest('dist/img'))
 	.pipe(livereload());
+};
+
+gulp.task('min-image', () => {
+	return minImage();
 });
 
 gulp.task('serve', () => {
-	let server = http.createServer(app);
-	let serverPort = 3000;
+	const server = http.createServer(app);
+	const serverPort = 3000;
 
 	server.listen(serverPort, () => {
-		let url = `http://localhost:${serverPort}`;
+		const url = `http://localhost:${serverPort}`;
+
 		log(`Now serving the page at ${url}`);
 		open(url);
 	});
@@ -445,19 +445,22 @@ gulp.task('all', (callback) => {
 });
 
 gulp.task('watch-html', () => {
-	gulp.watch('www/**/*.html', ['min-html']);
+	gulp.watch('www/**/*.html', ['clear', 'min-html']);
 });
 
 gulp.task('watch-sass', () => {
-	gulp.watch(['www/scss/**/*.scss', 'www/scss/**/*.css', 'www/css/**/*.css', 'www/js/**/*.scss', 'www/js/**/*.css'], ['sass']);
+	gulp.watch(
+		['www/scss/**/*.scss', 'www/scss/**/*.css', 'www/css/**/*.css', 'www/js/**/*.scss', 'www/js/**/*.css'],
+		['clear', 'sass']
+	);
 });
 
 gulp.task('watch-fonts', () => {
-	gulp.watch(['www/fonts/**'], ['fonts']);
+	gulp.watch(['www/fonts/**'], ['clear', 'fonts']);
 });
 
 gulp.task('watch-img', () => {
-	gulp.watch(['www/img/**'], ['min-image']);
+	gulp.watch(['www/img/**'], ['clear', 'min-image']);
 });
 
 gulp.task('livereload', () => {
@@ -467,11 +470,7 @@ gulp.task('livereload', () => {
 	});
 });
 
-gulp.task('default', sequence('all', [
-	'watch-html',
-	'watch-sass',
-	'watch-fonts',
-	'watch-img',
-	'serve',
-	'livereload',
-]));
+gulp.task('default', (callback) => {
+	singleRun = false;
+	sequence('all', ['watch-html', 'watch-sass', 'watch-fonts', 'watch-img', 'serve', 'livereload'])(callback);
+});

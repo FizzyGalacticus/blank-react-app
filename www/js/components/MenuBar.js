@@ -7,7 +7,7 @@ class MenuBar extends Component {
 }
 
 MenuBar.defaultProps = {
-	title: 'Defualt Title'
+	title: 'Defualt Title',
 };
 
 export default MenuBar;
