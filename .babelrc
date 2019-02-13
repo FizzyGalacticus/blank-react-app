@@ -1,11 +1,9 @@
 {
-	"presets": ["react", "env"],
+	"presets": ["@babel/preset-flow", "@babel/preset-react", "@babel/preset-env"],
+	"plugins": ["@babel/plugin-transform-runtime"],
 	"env": {
-		"development": {
+		"dev": {
 			"plugins": [
-				"transform-object-rest-spread",
-				"transform-decorators-legacy",
-				"transform-runtime",
 				[
 					"react-transform",
 					{
@@ -18,9 +16,6 @@
 					}
 				]
 			]
-		},
-		"production": {
-			"plugins": ["transform-object-rest-spread", "transform-decorators-legacy", "transform-runtime"]
 		}
 	}
 }
